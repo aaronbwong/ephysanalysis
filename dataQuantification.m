@@ -101,6 +101,8 @@ end
 
 OutPath = 'V:\Data\ProcessedData\Blom\Processed\M20\ICX';
 BehaviorPath = 'V:\Data\InVivoEphys\Blom\BehavioralStimuli\M20';
+% OutPath = 'V:\Data\ProcessedData\Blom\Processed\M19\ICX';
+% BehaviorPath = 'V:\Data\InVivoEphys\Blom\BehavioralStimuli\M19';
 
 % load data
 [cids, stimuli_parameters, aligned_spikes, ~, ~, ~, ~, ~] = loadData(OutPath, 3, BehaviorPath);
@@ -110,8 +112,9 @@ spikeTimes = aligned_spikes(:,cluster);
 
 SomFreq = 50;
 Amplitude = 0.3;
+Delay=18e-3;
 for MMType = ["SO","SA"]
-SomDelay = 0.5;
+SomDelay = 0.25;
 s_idx =     stimuli_parameters.Stm.SomFreq == SomFreq & ...
             stimuli_parameters.Stm.Amplitude == Amplitude & ...
             strcmp(stimuli_parameters.Stm.MMType, MMType);
@@ -136,12 +139,11 @@ StimDur = 0.001*stim.SomDur;
             fig = figure(3);
     end
     clf(fig)
-    xRange = [-0.1,StimDur+0.2];
+    xRange = [-0.3,StimDur+0.3];
 
 % 1) get cycle times
 
 Mf = SomFreq;
-Delay=13e-3;
 [CycT,edges] = CycTimesPerCycle(SpkT,StimDur, Mf,Delay);
 
 % 2) Sum the number of elements in each column of CycT
@@ -153,7 +155,7 @@ avgNumSpikesPerCyc = mean(NumSpikesPerCyc,1);
     ncols = 5;
     % plot stimlus
     ax0 = subplot(ncols,1,1);
-    tt = 0:0.001:StimDur;
+    tt = 0:0.0001:StimDur;
     stim_waveform = (1-cos(2*pi*SomFreq.*tt));
     plot(ax0,tt,stim_waveform,'k-')
     xlim(ax0,xRange)
@@ -171,7 +173,7 @@ avgNumSpikesPerCyc = mean(NumSpikesPerCyc,1);
     period = 1/SomFreq;
 
     % plot PSTH
-    hist_edges = xRange(1):(min(0.2*period,0.005)):(max(StimDur,xRange(2)));
+    hist_edges = xRange(1):(min(0.1*period,0.005)):(max(StimDur,xRange(2)));
     histogram(ax1,vertcat(SpkT{:}),hist_edges)
     ylabel(ax1,'Number of spikes')
 
@@ -221,7 +223,7 @@ end
 
     yyaxis(ax2,'right')
     plot(ax2,binCenters,PhasePerCycle)
-    ylabel("Phase (cycle - Delay)")
+    ylabel("Delay-subtracted phase (cycle)")
     ylim(ax2,[0,1])
     xline(ax2,edges,'--','Color',[.7,.7,.7])
     xlim(ax2,xRange)
@@ -233,7 +235,55 @@ end
             '    Amp: ', num2str(Amplitude,'%.1f V'), ...
             newline,...
             '    Analysis delay: ',num2str(Delay*1000,'%d ms')])
+    linkaxes([ax0,ax1,ax2],'x')
 end
+%% Checking group delay via phase
+cluster = 11;
+spikeTimes = aligned_spikes(:,cluster);
+
+Amplitude = 0.3;
+SomFreqList = [10,20,50,100];
+MMType = 'SO';
+Delay = 0;
+DelayList = 0:1e-3:30e-3;
+meanPhaseCorr = nan(length(DelayList),length(SomFreqList));
+for d_idx = 1:length(DelayList)
+    Delay = DelayList(d_idx);
+    meanPhase = nan(size(SomFreqList));
+    for f_idx = 1:length(SomFreqList)
+        SomFreq = SomFreqList(f_idx);
+        s_idx =     stimuli_parameters.Stm.SomFreq == SomFreq & ...
+                    stimuli_parameters.Stm.Amplitude == Amplitude & ...
+                    strcmp(stimuli_parameters.Stm.MMType, MMType);
+        
+        SpkT = spikeTimes(s_idx);
+        
+        [CycT,edges] = CycTimesPerCycle(SpkT,StimDur,SomFreq,Delay);
+        NStim = size(CycT,1);
+        NCyc = size(CycT,2);
+    
+        period = 1 / SomFreq;
+        CycT_norm = CycT;
+        for n = 1:NStim
+            for m = 1:NCyc
+                CycT_norm{n,m} = (CycT{n,m} - edges(m)) / period;
+            end
+        end
+        VSPerCycle = nan(1,NCyc);
+        PhasePerCycle = nan(1,NCyc);
+        RayleighPerCycle = nan(1,NCyc);
+        for m = 1:NCyc
+            [VSPerCycle(m),PhasePerCycle(m),RayleighPerCycle(m)] = calcVS(CycT_norm(:,m));
+        end
+        meanPhase(f_idx) = mean(PhasePerCycle(1:3),'omitnan');
+    end
+    meanPhaseCorr(d_idx,:) = meanPhase;
+end
+figure(3);
+% meanPhaseCorr = mod(meanPhase - DelayList' ./ (1./SomFreqList),1);
+plot(DelayList,meanPhaseCorr)
+legend(string(SomFreqList))
+ylim([0,1])
 %%
 % Example cell array structure: rows (trials), columns (neurons)
 spikeTimes = aligned_spikes;
